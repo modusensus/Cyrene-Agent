@@ -251,6 +251,8 @@ export interface BuildPostGenerationMessagesInput {
   persona: string;
   /** 关键词命中的 worldbook 设定块（含常驻）；空串表示无命中不注入 */
   worldbook?: string;
+  /** 插件提示词上下文，moments-post 场景；空串/缺省不注入 */
+  pluginContext?: string;
   /** 触发摘录：ring buffer 组装的会话原文 */
   summary: string;
   /** 最近昔涟动态（供新颖性判断） */
@@ -263,6 +265,7 @@ export function buildPostGenerationMessages(input: BuildPostGenerationMessagesIn
   const packet = buildPostGenerationPacket({
     summary: input.summary,
     recentCyrenePosts: input.recentCyrenePosts,
+    pluginContext: input.pluginContext,
     localNow: input.localNow,
   });
   const user = `${packet}
@@ -435,6 +438,8 @@ export interface MomentsAgentDeps {
   matchMedia: (query: string) => Promise<MomentMedia | null>;
   /** 关键词命中 worldbook 设定（含常驻）；未注入或无命中时返回空串 */
   buildWorldbookContext?: (text: string) => string;
+  /** 注入插件提示词上下文（moments-post 场景）；未注入或抛错时发帖不带插件上下文 */
+  buildPluginPromptContext?: (input: { source: "moments-post"; userText: string }) => Promise<string>;
   /** 读取用户动态图片（user_attachment 副本）转 base64 直发多模态模型；未注入时不带图 */
   loadPostImages?: (post: MomentPost) => MomentPostImage[];
   /** 决策前重读动态与评论线程：排队期间世界可能已变 */
@@ -529,10 +534,18 @@ export function createMomentsAgent(deps: MomentsAgentDeps): MomentsAgent {
   }
 
   async function generatePost(input: { summary: string; recentCyrenePosts: readonly MomentPost[] }): Promise<boolean> {
+    // 插件补充上下文是锦上添花：构建失败只记日志降级为空串，不阻断发帖主流程（fail-safe）
+    let pluginContext = "";
+    try {
+      pluginContext = await deps.buildPluginPromptContext?.({ source: "moments-post", userText: input.summary }) ?? "";
+    } catch (error) {
+      deps.log?.("post_plugin_context_failed", error instanceof Error ? error.message : String(error));
+    }
     const output = await deps.runModel(buildPostGenerationMessages({
       persona: deps.buildPersona(),
       // 会话摘录扫 worldbook 关键词，发帖文案才能贴合设定
       worldbook: deps.buildWorldbookContext?.(input.summary) ?? "",
+      pluginContext,
       summary: input.summary,
       recentCyrenePosts: input.recentCyrenePosts,
       localNow: new Date(),

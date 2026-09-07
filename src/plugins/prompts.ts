@@ -1,6 +1,7 @@
 import type {
   PluginPromptBuildInput,
   PluginPromptProvider,
+  PluginPromptSource,
 } from "./types";
 
 const PROMPT_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
@@ -8,6 +9,9 @@ const PROMPT_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 export const PLUGIN_PROMPT_PROVIDER_TIMEOUT_MS = 2_000;
 export const MAX_PLUGIN_PROMPT_CHARS = 16_000;
 export const MAX_PLUGIN_PROMPT_TOTAL_CHARS = 32_000;
+
+/** 未声明 sources 的 Provider 视为只参与既有场景，与旧版注册行为保持一致（向后兼容）。 */
+const LEGACY_PROMPT_SOURCES: readonly PluginPromptSource[] = ["conversation", "scheduler"];
 
 interface PromptEntry {
   ownerId: string;
@@ -77,6 +81,15 @@ export function createPluginPromptRegistry(): PluginPromptRegistry {
       )) {
         throw new Error("插件提示词 Provider modes 含未知模式");
       }
+      // sources 是显式场景声明：必须为非空数组且只含合法场景字面量，
+      // 否则拼写错误会静默失效，插件作者难以排查。
+      if (provider.sources && (
+        !Array.isArray(provider.sources)
+        || provider.sources.length === 0
+        || provider.sources.some((source) => !["conversation", "scheduler", "moments-post"].includes(source))
+      )) {
+        throw new Error(`插件提示词 Provider sources 非法: ${JSON.stringify(provider.sources)}`);
+      }
       const fullId = fullProviderId(ownerId, provider.id);
       if (entries.has(fullId)) {
         throw new Error(`插件提示词 Provider 已注册: ${provider.id}`);
@@ -92,7 +105,10 @@ export function createPluginPromptRegistry(): PluginPromptRegistry {
       // 先拍快照再并行执行：结果仍按注册顺序拼接，运行中增删不会改变本轮内容。
       const snapshot = [...entries.values()].filter((entry) => (
         !entry.signal.aborted
-        && (!entry.provider.modes || entry.provider.modes.includes(input.mode))
+        // 场景匹配：未声明 sources 的 Provider 只参与既有场景（向后兼容）。
+        && (entry.provider.sources ?? LEGACY_PROMPT_SOURCES).includes(input.source)
+        // 模式匹配：moments-post 没有会话模式，带 modes 声明的 Provider 是否参与由 sources 决定。
+        && (!entry.provider.modes || (input.mode !== undefined && entry.provider.modes.includes(input.mode)))
       ));
       const contents = await Promise.all(snapshot.map((entry) => resolveProvider(entry, input)));
       const blocks: string[] = [];

@@ -510,10 +510,17 @@ export type PluginCleanup = () => void | Promise<void>;
 
 export type PluginPromptMode = "chat" | "work" | "learn" | "code";
 
+/**
+ * 提示词 Provider 的场景来源。新增场景默认不收录既有 Provider，
+ * 插件必须显式声明 sources 才会参与，防止升级后不知情地被扩大调用。
+ */
+export type PluginPromptSource = "conversation" | "scheduler" | "moments-post";
+
 export interface PluginPromptBuildInput {
-  /** conversation 表示用户会话，scheduler 表示定时任务。 */
-  source: "conversation" | "scheduler";
-  mode: PluginPromptMode;
+  /** conversation 表示用户会话，scheduler 表示定时任务，moments-post 表示动态发帖决策。 */
+  source: PluginPromptSource;
+  /** 会话模式；moments-post 为无会话模式的独立场景，调用时缺省。 */
+  mode?: PluginPromptMode;
   userText: string;
   conversationId?: string;
   channel?: string;
@@ -529,6 +536,11 @@ export interface PluginPromptProvider {
   id: string;
   /** 缺省表示全部会话模式。 */
   modes?: PluginPromptMode[];
+  /**
+   * 声明后仅在列出的场景生效；缺省 = 仅 conversation + scheduler
+   * （与旧版行为一致），参与 moments-post 必须显式声明，防止升级后插件不知情地被扩大调用。
+   */
+  sources?: PluginPromptSource[];
   provide(input: PluginPromptProviderInput): string | Promise<string>;
 }
 

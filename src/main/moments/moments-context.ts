@@ -285,6 +285,8 @@ export interface PostGenerationPacketInput {
   summary: string;
   /** 最近昔涟动态（供新颖性判断，避免重复发相似内容） */
   recentCyrenePosts: readonly MomentPost[];
+  /** 插件提示词上下文，moments-post 场景；空串/缺省不注入 */
+  pluginContext?: string;
   localNow: Date;
 }
 
@@ -302,6 +304,12 @@ export function buildPostGenerationPacket(input: PostGenerationPacketInput): str
     sections.push(`[你最近发过的动态]（避免重复发相似内容）\n${lines.join("\n")}`);
   } else {
     sections.push("[你最近发过的动态]\n（暂无）");
+  }
+
+  // 插件补充上下文是 LLM 派生的参考数据而非指令：沿用防注入声明纪律，
+  // 避免插件内容被升级成 system-like 指令执行；空串/缺省不注入
+  if (input.pluginContext?.trim()) {
+    sections.push(`[插件补充上下文]\n${AWARENESS_DISCLAIMER}\n\n${input.pluginContext.trim()}`);
   }
 
   sections.push(`[当前时间]\n${formatDateTime(input.localNow.getTime())} 周${WEEKDAYS[input.localNow.getDay()]}`);

@@ -20,6 +20,7 @@ import { enqueueLLMTask } from "../llm-queue";
 import { loadGeneralSettings } from "../settings/settings-facade";
 import { loadModelSettings } from "../settings/model-settings";
 import { loadPromptFile } from "../prompts/prompt-loader";
+import { pluginPromptRegistry } from "../../plugins/prompts";
 import type { ChatMessage, VendorConfig } from "../orchestrator/vendors";
 import * as path from "path";
 import { getEmbeddingProvider } from "../rag/embedding";
@@ -166,6 +167,8 @@ export interface MomentsServiceDeps {
   matchMedia?: (query: string) => Promise<MomentMedia | null>;
   /** 关键词命中 worldbook 设定块（未注入时降级空串，不注入设定） */
   buildWorldbookContext?: (text: string) => string;
+  /** 注入插件提示词上下文（moments-post 场景）；未注入或抛错时发帖不带插件上下文 */
+  buildPluginPromptContext?: (input: { source: "moments-post"; userText: string }) => Promise<string>;
   /** 读取用户动态图片转 base64（未注入时不带图） */
   loadPostImages?: (post: MomentPost) => MomentPostImage[];
   /**
@@ -199,6 +202,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
     loadFeedItem: (postId) => deps.store.getFeedItem(postId),
     matchMedia: deps.matchMedia ?? (async () => null),
     buildWorldbookContext: deps.buildWorldbookContext,
+    buildPluginPromptContext: deps.buildPluginPromptContext,
     loadPostImages: deps.loadPostImages,
     log: deps.log,
   });
@@ -829,6 +833,8 @@ export const momentsService: MomentsService = createMomentsService({
   loadVendorConfig: loadMomentsVendorConfig,
   matchMedia: createMomentsMediaMatcher(),
   buildWorldbookContext: buildMomentsWorldbookContext,
+  // 插件提示词上下文（moments-post 场景）：registry 自带超时/长度/防注入收口，这里只转发
+  buildPluginPromptContext: (input) => pluginPromptRegistry.build(input),
   loadPostImages: loadUserMomentPostImages,
   buildPersona: buildMomentsPersonaPrompt,
   // 角色注册表：立绘池 ∩ 人设 md，md 随时可改，每次抽签/执行前现读；

@@ -5,6 +5,7 @@ import {
   MAX_PLUGIN_PROMPT_TOTAL_CHARS,
   PLUGIN_PROMPT_PROVIDER_TIMEOUT_MS,
 } from "./prompts";
+import type { PluginPromptSource } from "./types";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -112,5 +113,61 @@ describe("PluginPromptRegistry", () => {
     expect(result).toContain("plugin:demo:context-0");
     expect(result).toContain("plugin:demo:context-1");
     expect(result).not.toContain("plugin:demo:context-2");
+  });
+});
+
+describe("场景作用域（sources）", () => {
+  it("无 Provider 参与时 moments-post 构建返回空串（mode 缺省合法）", async () => {
+    const registry = createPluginPromptRegistry();
+
+    expect(await registry.build({ source: "moments-post", userText: "x" })).toBe("");
+  });
+
+  it("未声明 sources 的 Provider 只参与既有场景（向后兼容）", async () => {
+    const registry = createPluginPromptRegistry();
+    const signal = new AbortController().signal;
+    registry.register("legacy", { id: "context", provide: () => "LEGACY" }, signal);
+
+    expect(await registry.build({ source: "moments-post", userText: "hi" })).toBe("");
+    expect(await registry.build({ source: "conversation", mode: "chat", userText: "hi" }))
+      .toBe("[插件上下文：plugin:legacy:context]\nLEGACY");
+  });
+
+  it("显式 sources: [\"moments-post\"] 后完全按声明生效", async () => {
+    const registry = createPluginPromptRegistry();
+    const signal = new AbortController().signal;
+    registry.register("moments", {
+      id: "context",
+      sources: ["moments-post"],
+      provide: ({ source }) => `POST:${source}`,
+    }, signal);
+
+    expect(await registry.build({ source: "moments-post", userText: "hi" }))
+      .toBe("[插件上下文：plugin:moments:context]\nPOST:moments-post");
+    expect(await registry.build({ source: "conversation", mode: "chat", userText: "hi" })).toBe("");
+  });
+
+  it("moments-post 场景下 Provider 抛错时降级为空串", async () => {
+    const registry = createPluginPromptRegistry();
+    const signal = new AbortController().signal;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    registry.register("broken", {
+      id: "context",
+      sources: ["moments-post"],
+      provide: () => { throw new Error("failed"); },
+    }, signal);
+
+    expect(await registry.build({ source: "moments-post", userText: "hi" })).toBe("");
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("register 拒绝空数组或含未知场景的 sources", () => {
+    const registry = createPluginPromptRegistry();
+    const signal = new AbortController().signal;
+    expect(() => registry.register("alpha", { id: "context", sources: [], provide: () => "ok" }, signal))
+      .toThrow(/sources 非法/);
+    const unknownSource = ["moments"] as unknown as PluginPromptSource[];
+    expect(() => registry.register("alpha", { id: "context", sources: unknownSource, provide: () => "ok" }, signal))
+      .toThrow(/sources 非法/);
   });
 });
