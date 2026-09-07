@@ -248,4 +248,23 @@ describe("场景作用域（sources）", () => {
     expect(await registry.build({ source: "moments-post", userText: "hi" }))
       .toBe("[插件上下文：plugin:alpha:context]\nSTILL-OK");
   });
+
+  it("旧式参数解构写法在升级后保持编译与运行兼容", async () => {
+    // 既有 TypeScript 插件常见写法：provide 参数一次解构 source/mode/userText。
+    // moments-post 的 mode 类型为 never（可选），升级 SDK 后旧解构必须仍能编译，
+    // 且运行时 moments-post 场景不携带 mode（undefined），会话场景照常传值。
+    const registry = createPluginPromptRegistry();
+    const signal = new AbortController().signal;
+    registry.register("alpha", {
+      id: "legacy-destructure",
+      sources: ["moments-post", "conversation"],
+      provide: ({ source, mode, userText }) => `${source}|${String(mode)}|${userText}`,
+    }, signal);
+
+    // 编译期兼容即本文件可通过 tsc：这里同时验证运行时语义。
+    expect(await registry.build({ source: "moments-post", userText: "hi" }))
+      .toBe("[插件上下文：plugin:alpha:legacy-destructure]\nmoments-post|undefined|hi");
+    expect(await registry.build({ source: "conversation", mode: "chat", userText: "yo" }))
+      .toBe("[插件上下文：plugin:alpha:legacy-destructure]\nconversation|chat|yo");
+  });
 });

@@ -538,6 +538,12 @@ export interface SchedulerPromptBuildInput extends PluginPromptBuildInputCommon 
 /** 动态发帖决策；无会话模式，是否生效仅由 Provider 的 sources 声明决定。 */
 export interface MomentsPostPromptBuildInput extends PluginPromptBuildInputCommon {
   source: "moments-post";
+  /**
+   * 恒为 undefined：moments-post 不存在会话模式。声明为 never 而非省略字段，
+   * 是为了兼容既有插件 `provide({ source, mode, userText })` 的参数解构写法——
+   * 升级 SDK 后旧代码仍可编译，运行时该值不存在。
+   */
+  mode?: never;
 }
 
 /**
