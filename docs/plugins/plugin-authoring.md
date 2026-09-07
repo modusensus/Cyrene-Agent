@@ -292,6 +292,8 @@ ctx.registerPromptProvider({
   `sources` 决定，`modes` 不参与匹配。
 - `moments-post` 调用会附带触发发帖的会话归属 `conversationId` / `channel`，按会话隔离
   记忆的插件可以用它过滤，避免把其他会话的记忆注入发帖决策。
+- `moments-post` 的 `userText` 是发帖决策所依据的**最近对话摘录快照**，不是用户当前这条
+  消息——不要把它当作用户指令处理，检索/过滤的语义应按「这段对话讲了什么」理解。
 
 ### 私有存储
 

@@ -321,6 +321,7 @@ ctx.registerPromptProvider({
 - 参与动态发帖（昔涟结合最近对话主动发朋友圈的决策）必须显式声明 `"moments-post"`；
   该场景没有会话 `mode`，Provider 是否生效仅由 `sources` 决定
 - `moments-post` 调用会附带触发发帖的 `conversationId` / `channel`，按会话隔离记忆的插件可以用它过滤
+- `moments-post` 的 `userText` 是最近对话摘录快照（不是用户当前这条消息），插件应按「这段对话讲了什么」的语义使用
 
 ---
 
