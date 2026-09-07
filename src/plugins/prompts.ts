@@ -83,7 +83,9 @@ export function createPluginPromptRegistry(): PluginPromptRegistry {
       }
       // sources 是显式场景声明：必须为非空数组且只含合法场景字面量，
       // 否则拼写错误会静默失效，插件作者难以排查。
-      if (provider.sources && (
+      // 用存在性判断而非真值判断：false/0 等假值同样非法，必须在注册时拒绝，
+      // 而不是留到构建过滤的 includes() 处抛 TypeError 炸掉整个 registry。
+      if (provider.sources !== undefined && (
         !Array.isArray(provider.sources)
         || provider.sources.length === 0
         || provider.sources.some((source) => !["conversation", "scheduler", "moments-post"].includes(source))
@@ -103,13 +105,15 @@ export function createPluginPromptRegistry(): PluginPromptRegistry {
 
     async build(input) {
       // 先拍快照再并行执行：结果仍按注册顺序拼接，运行中增删不会改变本轮内容。
-      const snapshot = [...entries.values()].filter((entry) => (
-        !entry.signal.aborted
+      const snapshot = [...entries.values()].filter((entry) => {
+        if (entry.signal.aborted) return false;
         // 场景匹配：未声明 sources 的 Provider 只参与既有场景（向后兼容）。
-        && (entry.provider.sources ?? LEGACY_PROMPT_SOURCES).includes(input.source)
-        // 模式匹配：moments-post 没有会话模式，带 modes 声明的 Provider 是否参与由 sources 决定。
-        && (!entry.provider.modes || (input.mode !== undefined && entry.provider.modes.includes(input.mode)))
-      ));
+        if (!(entry.provider.sources ?? LEGACY_PROMPT_SOURCES).includes(input.source)) return false;
+        // moments-post 没有会话模式：是否生效仅由 sources 决定，绕过 modes 过滤（评审 ①）。
+        if (input.source === "moments-post") return true;
+        // 会话场景（conversation/scheduler）按 modes 匹配；判别联合保证此时 mode 必填。
+        return !entry.provider.modes || entry.provider.modes.includes(input.mode);
+      });
       const contents = await Promise.all(snapshot.map((entry) => resolveProvider(entry, input)));
       const blocks: string[] = [];
       let totalChars = 0;

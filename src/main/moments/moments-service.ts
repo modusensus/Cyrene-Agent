@@ -168,7 +168,14 @@ export interface MomentsServiceDeps {
   /** 关键词命中 worldbook 设定块（未注入时降级空串，不注入设定） */
   buildWorldbookContext?: (text: string) => string;
   /** 注入插件提示词上下文（moments-post 场景）；未注入或抛错时发帖不带插件上下文 */
-  buildPluginPromptContext?: (input: { source: "moments-post"; userText: string }) => Promise<string>;
+  buildPluginPromptContext?: (input: {
+    source: "moments-post";
+    userText: string;
+    /** 触发发帖的会话（事件到达时的快照）；按会话隔离记忆的插件可用它过滤 */
+    conversationId?: string;
+    /** 触发发帖的渠道（事件到达时的快照） */
+    channel?: string;
+  }) => Promise<string>;
   /** 读取用户动态图片转 base64（未注入时不带图） */
   loadPostImages?: (post: MomentPost) => MomentPostImage[];
   /**
@@ -632,8 +639,10 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
     if (state.recentEventKeys.includes(eventKey)) return;
     savePolicyState(recordEventKey(state, eventKey));
 
-    // 摘要在事件到达时冻结（快照语义，契约 1）
+    // 摘要在事件到达时冻结（快照语义，契约 1）；会话归属同批捕获——
+    // 任务执行时只读这份快照，不重读当前会话状态
     const summary = buildConversationSummary(turns);
+    const { conversationId, channel } = input;
     deps.enqueueTask("MomentsPost", async () => {
       // 执行时复核冷却与日上限：闸门通过到任务执行之间，世界可能已变
       const gate = canPost(loadPolicyState(), now());
@@ -645,7 +654,7 @@ export function createMomentsService(deps: MomentsServiceDeps): MomentsService {
         .map((item) => item.post)
         .filter((post) => post.author === "cyrene")
         .slice(0, RECENT_CYRENE_POSTS_FOR_NOVELTY);
-      const posted = await agent.generatePost({ summary, recentCyrenePosts });
+      const posted = await agent.generatePost({ summary, recentCyrenePosts, conversationId, channel });
       if (posted) savePolicyState(recordPost(loadPolicyState(), now()));
     }).catch((error) => {
       deps.log?.("post_task_failed", error instanceof Error ? error.message : String(error));

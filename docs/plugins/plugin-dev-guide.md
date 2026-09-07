@@ -315,6 +315,13 @@ ctx.registerPromptProvider({
 
 这些内容只进入每轮动态上下文，不会改写核心提示词文件，也不会进入稳定提示词缓存前缀。
 
+`sources` 声明 Provider 参与的场景，可选值为 `"conversation"`（用户会话）/ `"scheduler"`（定时任务）/ `"moments-post"`（动态发帖决策）：
+
+- 未声明时默认只参与会话与定时任务两类场景（与旧版行为一致，既有插件无需改动）
+- 参与动态发帖（昔涟结合最近对话主动发朋友圈的决策）必须显式声明 `"moments-post"`；
+  该场景没有会话 `mode`，Provider 是否生效仅由 `sources` 决定
+- `moments-post` 调用会附带触发发帖的 `conversationId` / `channel`，按会话隔离记忆的插件可以用它过滤
+
 ---
 
 ## 私有存储

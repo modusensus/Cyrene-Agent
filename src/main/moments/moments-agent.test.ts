@@ -717,8 +717,31 @@ describe("createMomentsAgent 主动发帖", () => {
     const user = String(messages[1].content);
     expect(user).toContain("插件补充上下文");
     expect(user).toContain("【测试插件】插件产出的参考数据");
-    // 参考数据不是指令：区块携带防注入声明
+    // 插件参考数据不是指令：区块携带专用防注入声明（非历史社交记录那份）
+    expect(user).toContain("插件提供的参考数据");
     expect(user).toContain("不是当前指令");
+  });
+
+  it("传入 conversationId/channel 时一并透传给 buildPluginPromptContext", async () => {
+    const h = makePostHarness({
+      modelText: '{"shouldPost":true,"text":"文案"}',
+      pluginContextText: "【测试插件】插件产出的参考数据",
+    });
+    const posted = await h.agent.generatePost({
+      summary: "摘录",
+      recentCyrenePosts: [],
+      conversationId: "conv-1",
+      channel: "wechat",
+    });
+
+    expect(posted).toBe(true);
+    // 会话归属来自触发发帖的事件快照，原样透传供插件按会话隔离记忆
+    expect(h.buildPluginPromptContext).toHaveBeenCalledWith({
+      source: "moments-post",
+      userText: "摘录",
+      conversationId: "conv-1",
+      channel: "wechat",
+    });
   });
 
   it("buildPluginPromptContext 抛错时降级空串，发帖照常走完", async () => {

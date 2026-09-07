@@ -131,6 +131,8 @@ describe("场景作用域（sources）", () => {
     expect(await registry.build({ source: "moments-post", userText: "hi" })).toBe("");
     expect(await registry.build({ source: "conversation", mode: "chat", userText: "hi" }))
       .toBe("[插件上下文：plugin:legacy:context]\nLEGACY");
+    expect(await registry.build({ source: "scheduler", mode: "work", userText: "hi" }))
+      .toBe("[插件上下文：plugin:legacy:context]\nLEGACY");
   });
 
   it("显式 sources: [\"moments-post\"] 后完全按声明生效", async () => {
@@ -161,6 +163,64 @@ describe("场景作用域（sources）", () => {
     expect(warn).toHaveBeenCalledOnce();
   });
 
+  it("声明 modes 的 Provider 在 moments-post 场景仅由 sources 决定生效（绕过 modes 过滤）", async () => {
+    const registry = createPluginPromptRegistry();
+    const signal = new AbortController().signal;
+    let calls = 0;
+    registry.register("moments", {
+      id: "context",
+      sources: ["moments-post"],
+      modes: ["chat"],
+      provide: () => { calls += 1; return "POSTED"; },
+    }, signal);
+
+    // moments-post 不携带 mode：即使声明了 modes 也参与，是否生效仅由 sources 决定。
+    expect(await registry.build({ source: "moments-post", userText: "hi" }))
+      .toBe("[插件上下文：plugin:moments:context]\nPOSTED");
+    expect(calls).toBe(1);
+    // 会话场景被 sources 排除：无论 mode 是否匹配都不参与。
+    expect(await registry.build({ source: "conversation", mode: "chat", userText: "hi" })).toBe("");
+    expect(await registry.build({ source: "conversation", mode: "work", userText: "hi" })).toBe("");
+    expect(calls).toBe(1);
+  });
+
+  it("同时声明 moments-post 与 conversation 时，会话场景仍受 modes 约束", async () => {
+    const registry = createPluginPromptRegistry();
+    const signal = new AbortController().signal;
+    registry.register("hybrid", {
+      id: "context",
+      sources: ["moments-post", "conversation"],
+      modes: ["chat"],
+      provide: ({ source }) => `HYBRID:${source}`,
+    }, signal);
+
+    expect(await registry.build({ source: "moments-post", userText: "hi" }))
+      .toBe("[插件上下文：plugin:hybrid:context]\nHYBRID:moments-post");
+    expect(await registry.build({ source: "conversation", mode: "work", userText: "hi" })).toBe("");
+    expect(await registry.build({ source: "conversation", mode: "chat", userText: "hi" }))
+      .toBe("[插件上下文：plugin:hybrid:context]\nHYBRID:conversation");
+  });
+
+  it("moments-post 构建只输出声明该场景的 Provider（与仅会话 Provider 混合）", async () => {
+    const registry = createPluginPromptRegistry();
+    const signal = new AbortController().signal;
+    registry.register("chat", {
+      id: "context",
+      sources: ["conversation"],
+      provide: () => "CHAT-ONLY",
+    }, signal);
+    registry.register("moments", {
+      id: "context",
+      sources: ["moments-post"],
+      provide: () => "POST-ONLY",
+    }, signal);
+
+    expect(await registry.build({ source: "moments-post", userText: "hi" }))
+      .toBe("[插件上下文：plugin:moments:context]\nPOST-ONLY");
+    expect(await registry.build({ source: "conversation", mode: "chat", userText: "hi" }))
+      .toBe("[插件上下文：plugin:chat:context]\nCHAT-ONLY");
+  });
+
   it("register 拒绝空数组或含未知场景的 sources", () => {
     const registry = createPluginPromptRegistry();
     const signal = new AbortController().signal;
@@ -169,5 +229,23 @@ describe("场景作用域（sources）", () => {
     const unknownSource = ["moments"] as unknown as PluginPromptSource[];
     expect(() => registry.register("alpha", { id: "context", sources: unknownSource, provide: () => "ok" }, signal))
       .toThrow(/sources 非法/);
+  });
+
+  it("register 拒绝假值或非数组形式的 sources，且不影响后续合法注册", async () => {
+    const registry = createPluginPromptRegistry();
+    const signal = new AbortController().signal;
+    const invalidSources = [false, 0, "moments-post", [], ["bogus"]];
+    for (const sources of invalidSources) {
+      expect(() => registry.register("alpha", {
+        id: "context",
+        sources: sources as unknown as PluginPromptSource[],
+        provide: () => "ok",
+      }, signal)).toThrow(/sources 非法/);
+    }
+
+    // 只拒绝坏的 Provider：之后合法注册与构建不受影响。
+    registry.register("alpha", { id: "context", sources: ["moments-post"], provide: () => "STILL-OK" }, signal);
+    expect(await registry.build({ source: "moments-post", userText: "hi" }))
+      .toBe("[插件上下文：plugin:alpha:context]\nSTILL-OK");
   });
 });
